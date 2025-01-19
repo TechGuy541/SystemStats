@@ -5,7 +5,7 @@ struct SystemMonitorApp: App {
     @StateObject private var systemStats = SystemStats()
     
     init() {
-        // Hide from Dock
+        
         NSApplication.shared.setActivationPolicy(.accessory)
     }
     

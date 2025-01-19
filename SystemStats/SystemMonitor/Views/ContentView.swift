@@ -13,7 +13,7 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            // Stacked stats that act as buttons
+            
             VStack(spacing: 4) {
                 StatButton(title: "CPU", value: systemStats.cpuUsage, color: .red, isSelected: selectedStat == .cpu) {
                     selectedStat = .cpu
@@ -27,7 +27,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
             
-            // Graph for selected stat
+            
             GeometryReader { geometry in
                 Path { path in
                     let width = geometry.size.width / CGFloat(59)
