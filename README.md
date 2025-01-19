@@ -1,3 +1,3 @@
 # Things to know
 
-GPU isnt working and has never no matter what i tried
+UI isnt very pretty(redesign coming soon)
