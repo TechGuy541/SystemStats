@@ -1,3 +1,5 @@
+//Tech Guy 2025
+
 import Foundation
 import IOKit
 import IOKit.ps
@@ -13,55 +15,65 @@ class SystemStats: ObservableObject {
     private var previousCPUInfo: processor_info_array_t?
     private var previousCPUInfoCnt: mach_msg_type_number_t = 0
     private var timer: Timer?
-    private var device: MTLDevice?
-    private var commandQueue: MTLCommandQueue?
-    private var lastGPUTime: TimeInterval = 0
+    
+    private var gpuService: io_service_t = 0
+    private var previousGPUTime: UInt64 = 0
+    private var previousSystemTime: UInt64 = 0
     
     init() {
-        device = MTLCreateSystemDefaultDevice()
-        commandQueue = device?.makeCommandQueue()
+        setupGPUMonitoring()
         startMonitoring()
     }
     
+    private func setupGPUMonitoring() {
+        print("Setting up GPU monitoring...")
+        let matching = IOServiceMatching("IOAccelerator")
+        var iterator: io_iterator_t = 0
+        
+        let result = IOServiceGetMatchingServices(kIOMasterPortDefault, matching, &iterator)
+        print("IOServiceGetMatchingServices result: \(result)")
+        
+        if result == KERN_SUCCESS {
+            gpuService = IOIteratorNext(iterator)
+            print("Found GPU service: \(gpuService)")
+            IOObjectRelease(iterator)
+        }
+        
+        if gpuService == 0 {
+            print("No GPU accelerator found")
+        }
+    }
+    
     private func getGPUUsage() -> Double {
-        guard let device = device,
-              let commandQueue = commandQueue,
-              let commandBuffer = commandQueue.makeCommandBuffer() else {
+        guard gpuService != 0 else { return 0 }
+        
+        var properties: Unmanaged<CFMutableDictionary>?
+        let result = IORegistryEntryCreateCFProperties(gpuService, &properties, kCFAllocatorDefault, 0)
+        
+        guard result == KERN_SUCCESS,
+              let props = properties?.takeRetainedValue() as? [String: Any],
+              let stats = props["PerformanceStatistics"] as? [String: Any] else {
             return 0
         }
         
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+       
+        let rendererUtilization = stats["Renderer Utilization %"] as? Int ?? 0
         
-        let currentTime = CACurrentMediaTime()
+  
+        let deviceUtilization = stats["Device Utilization %"] as? Int ?? 0
+        let tilerUtilization = stats["Tiler Utilization %"] as? Int ?? 0
+        print("Device: \(deviceUtilization)%, Renderer: \(rendererUtilization)%, Tiler: \(tilerUtilization)%")
         
-        // Get optional values
-        let startTime: TimeInterval? = commandBuffer.gpuStartTime
-        let endTime: TimeInterval? = commandBuffer.gpuEndTime
         
-        if let start = startTime, let end = endTime {
-            let gpuDuration = end - start
-            let timeDelta = currentTime - lastGPUTime
-            
-            if lastGPUTime == 0 {
-                lastGPUTime = currentTime
-                return 0
-            }
-            
-            lastGPUTime = currentTime
-            
-            // Calculate GPU utilization as a percentage
-            let utilization = (gpuDuration / timeDelta) * 100.0
-            return min(max(utilization, 0), 100)
-        }
-        
-        return 0
+        return Double(rendererUtilization)
     }
     
     func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.updateStats()
         }
+        
+        updateStats()
     }
     
     private func updateStats() {
@@ -133,7 +145,7 @@ class SystemStats: ObservableObject {
         if result == KERN_SUCCESS {
             let pageSize = vm_kernel_page_size
             
-            // Calculate used memory (active + inactive + wired + compressed)
+            
             let active = Double(stats.active_count) * Double(pageSize)
             let inactive = Double(stats.inactive_count) * Double(pageSize)
             let wired = Double(stats.wire_count) * Double(pageSize)
@@ -142,7 +154,7 @@ class SystemStats: ObservableObject {
             let used = active + wired + compressed
             let total = Double(ProcessInfo.processInfo.physicalMemory)
             
-            // Convert to percentage of total memory
+          
             return min((used / total) * 100.0, 100.0)
         }
         
@@ -161,12 +173,15 @@ class SystemStats: ObservableObject {
             }
         }
         
-        return 100.0 // Return 100 if on AC power or no battery found
+        return 100.0 
     }
     
     deinit {
         if let previousCPUInfo = previousCPUInfo {
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: previousCPUInfo), vm_size_t(previousCPUInfoCnt))
+        }
+        if gpuService != 0 {
+            IOObjectRelease(gpuService)
         }
         timer?.invalidate()
     }
